@@ -1,11 +1,21 @@
-/** Exportação estática => publicável no GitHub Pages (HTTPS/TLS fornecido pelo GitHub). */
-const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+/** @type {import('next').NextPolicy} */
+const isGithubActions = process.env.GITHUB_ACTIONS || false;
 
-module.exports = {
+let repo = '';
+if (isGithubActions) {
+  repo = process.env.GITHUB_REPOSITORY.replace(/.*?\//, '');
+}
+
+const assetPrefix = isGithubActions ? `/${repo}/` : '';
+const basePath = isGithubActions ? `/${repo}` : '';
+
+const nextConfig = {
   output: 'export',
-  trailingSlash: true,
-  basePath,
-  images: { unoptimized: true },
-  reactStrictMode: true,
-  poweredByHeader: false,
+  assetPrefix: assetPrefix,
+  basePath: basePath,
+  images: {
+    unoptimized: true,
+  },
 };
+
+module.exports = nextConfig;
