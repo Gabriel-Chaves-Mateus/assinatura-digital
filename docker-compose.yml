@@ -1,0 +1,57 @@
+# Ambiente de desenvolvimento com políticas de segurança nos contêineres.
+# Produção: use MongoDB Atlas (nuvem) em MONGO_URI e remova o serviço "mongo".
+#   docker compose --profile local-db up --build
+
+x-hardening: &hardening
+  security_opt: ["no-new-privileges:true"]   # impede escalonamento de privilégio (setuid)
+  cap_drop: ["ALL"]                          # remove todas as capabilities do kernel
+  read_only: true                            # sistema de arquivos somente leitura
+  restart: unless-stopped
+  pids_limit: 256
+  mem_limit: 512m
+
+services:
+  mongo:
+    <<: *hardening
+    profiles: ["local-db"]
+    image: mongo:7
+    command: ["mongod", "--auth", "--bind_ip", "0.0.0.0", "--noscripting"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?defina em .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?defina em .env}
+    cap_add: ["CHOWN", "SETGID", "SETUID", "DAC_OVERRIDE", "FOWNER"]  # exigidas pelo entrypoint da imagem
+    security_opt: ["no-new-privileges:false"]
+    read_only: false
+    volumes: ["mongo-data:/data/db"]
+    networks: [backend-net]                  # sem portas publicadas: só o backend acessa
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    <<: *hardening
+    build: ./backend
+    env_file: .env
+    tmpfs: ["/tmp"]
+    ports: ["127.0.0.1:4000:4000"]           # só acessível pelo host local (use proxy TLS na frente)
+    networks: [backend-net, frontend-net]
+
+  frontend:
+    <<: *hardening
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    tmpfs: ["/tmp", "/var/cache/nginx", "/var/run"]
+    ports: ["127.0.0.1:3000:8080"]
+    networks: [frontend-net]
+    depends_on: [backend]
+
+networks:
+  backend-net: { internal: false }
+  frontend-net: {}
+
+volumes:
+  mongo-data:
